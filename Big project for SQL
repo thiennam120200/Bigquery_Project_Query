@@ -1,0 +1,144 @@
+-- Big project for SQL
+
+
+-- Query 01: calculate total visit, pageview, transaction and revenue for Jan, Feb and March 2017 order by month
+#standardSQL
+with sub as 
+(
+  select 
+  substring(date, 1,6) as month
+  , totals.visits
+  , totals.pageviews
+  ,totals.transactions 
+  , totals.totalTransactionRevenue
+from `bigquery-public-data.google_analytics_sample.ga_sessions_*`
+ where _table_suffix between '20170101' and '20170331'
+ )
+select 
+  month
+  ,sum(visits) as visits
+  ,sum(pageviews) as page_views
+  ,sum(transactions) as transactions
+  ,sum(totalTransactionRevenue)/1000000 as revenue
+FROM sub
+group by month
+order by month
+
+
+-- Query 02: Bounce rate per traffic source in July 2017
+#standardSQL
+with sub as 
+(
+select 
+  trafficSource.source
+  , totals.visits
+  , totals.bounces
+from `bigquery-public-data.google_analytics_sample.ga_sessions_*`
+ where _table_suffix between '20170701' and '20170731'
+ )
+select
+  source
+  ,sum(visits) as total_visits
+  ,sum(bounces) as total_num_of_bounces
+  , round(sum(bounces)/sum(visits),8)*100 as bounces_rate
+from sub 
+group by source
+order by sum(visits) desc
+
+
+--Query 03: Average number of product pageviews by purchaser type (purchasers vs non-purchasers) in June, July 2017. Note: totals.transactions >=1 for purchaser and totals.transactions is null for non-purchaser
+#standardSQL
+with sub as 
+(
+select 
+    substring(date, 1, 6) as month
+    ,fullVisitorId
+    , case when totals.transactions >=1 then 'puchaser'
+    else '' end as purchaser
+    , case when totals.transactions is null then "non-purchaser"
+    else '' end as non_purchaser
+    , totals.pageviews
+from `bigquery-public-data.google_analytics_sample.ga_sessions_*`
+where _table_suffix between '20170601' and '20170731'
+)
+, 
+sub1 as (
+select 
+    month, purchaser, non_purchaser
+    , count(distinct fullVisitorId) as unique_user
+    , sum(pageviews) as total_pageviews
+from sub 
+group by month,purchaser, non_purchaser)
+,
+sub2 as (
+select 
+    month, 
+    case when purchaser ='' then 0 
+    else total_pageviews/unique_user
+    end as avg_pageviews_purchase
+    , case when non_purchaser ='' then 0 
+    else total_pageviews/unique_user
+    end as avg_pageviews_non_purchase
+from sub1)
+select sub3.*, sub4.avg_pageviews_non_purchase
+from (select month,avg_pageviews_purchase from sub2 where avg_pageviews_purchase <>0) sub3
+left join (select month,avg_pageviews_non_purchase from sub2 where avg_pageviews_non_purchase<>0) sub4
+    on sub3.month=sub4.month
+
+
+
+
+-- Query 04: Average number of transactions per user that made a purchase in July 2017
+#standardSQL
+with sub as
+(
+select 
+    substring(date, 1, 6) as month
+    ,fullVisitorId
+    , case when totals.transactions >=1 then 'puchaser'
+    else 'non-purchaser' end as purchaser
+    , totals.transactions
+from `bigquery-public-data.google_analytics_sample.ga_sessions_*`
+where _table_suffix between '20170701' and '20170731'
+)
+, 
+sub1 as (
+select 
+    month
+    , count(distinct fullVisitorId) as unique_user
+from sub
+where transactions is not null
+group by month
+)
+, 
+sub2 as 
+(
+    select month, sum(transactions) as total_transactions
+    from sub 
+    where transactions is not null
+    group by month
+)
+select
+    sub1.month, sub2.total_transactions/sub1.unique_user as avg_total_transactions_per_user
+from sub1
+left join sub2
+    on sub1.month= sub2.month
+
+-- Query 05: Average amount of money spent per session
+#standardSQL
+
+with sub  as
+(
+select 
+    substring(date, 1, 6) as month
+    ,  totals.transactions
+    , totals.totalTransactionRevenue
+    , fullVisitorId
+from `bigquery-public-data.google_analytics_sample.ga_sessions_*`
+where _table_suffix between '20170701' and '20170731'
+)
+select month, sum( totalTransactionRevenue)/count(fullVisitorId) 
+from sub
+where transactions is not null
+group by month
+
